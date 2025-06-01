@@ -11,8 +11,8 @@ print('Logs from your program will appear here!')
 server = TCPServer.new('localhost', 4221)
 
 def get_encoding(request)
-  encoding = request.find { |header| header.start_with?('Accept-Encoding:') }&.split(' ')&.last
-  encoding if ['gzip'].include? encoding
+  encodings = request.find { |header| header.start_with?('Accept-Encoding:') }&.split(': ')&.last
+  'gzip' if encodings&.split(', ')&.include?('gzip')
 end
 
 def handle_request(socket)
