@@ -70,6 +70,8 @@ end
 
 while (client_socket = server.accept)
   Thread.new(client_socket) do |socket|
-    handle_request(socket)
+    loop do
+      handle_request(socket)
+    end
   end
 end
