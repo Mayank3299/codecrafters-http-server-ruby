@@ -17,29 +17,42 @@ def handle_request(socket)
 
     request << line.chomp
   end
-  request.join.split("\r\n")
   # debugger
+  request.join.split("\r\n")
   request_line = request.first.split(' ')
+  request_method = request_line[0]
   path = request_line[1]
-  if path.start_with?('/echo')
-    body = path[6..]
-    socket.puts "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: #{body.length}\r\n\r\n#{body}"
-  elsif path.start_with?('/user-agent')
-    ua = request.find { |ele| ele.start_with?('User-Agent') }.split(': ').last
-    socket.puts "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: #{ua.length}\r\n\r\n#{ua}"
-  elsif path.start_with?('/files')
-    begin
-      filename = path.split('/').last
-      directory = ARGV[1]
-      file = File.open(File.join(directory.to_s, filename), 'r')
-      socket.puts "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: #{file.size}\r\n\r\n#{file.read}"
-    rescue Errno::ENOENT
+  if request_method == 'GET'
+    if path.start_with?('/echo')
+      body = path[6..]
+      socket.puts "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: #{body.length}\r\n\r\n#{body}"
+    elsif path.start_with?('/user-agent')
+      ua = request.find { |ele| ele.start_with?('User-Agent') }.split(': ').last
+      socket.puts "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: #{ua.length}\r\n\r\n#{ua}"
+    elsif path.start_with?('/files')
+      begin
+        filename = path.split('/').last
+        directory = ARGV[1]
+        file = File.open(File.join(directory.to_s, filename), 'r')
+        socket.puts "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: #{file.size}\r\n\r\n#{file.read}"
+      rescue Errno::ENOENT
+        socket.puts "HTTP/1.1 404 Not Found\r\n\r\n"
+      end
+    elsif path == '/'
+      socket.puts "HTTP/1.1 200 OK\r\n\r\n"
+    else
       socket.puts "HTTP/1.1 404 Not Found\r\n\r\n"
     end
-  elsif path == '/'
-    socket.puts "HTTP/1.1 200 OK\r\n\r\n"
-  else
-    socket.puts "HTTP/1.1 404 Not Found\r\n\r\n"
+  elsif request_method == 'POST'
+    if path.start_with?('/files')
+      filename = path.split('/').last
+      content_length = request.find { |header| header.start_with?('Content-Length:') }.split(' ').last.to_i
+      body = socket.gets(content_length)
+      directory = ARGV[1]
+      file_path = File.join(directory.to_s, filename)
+      File.write(file_path, body)
+      socket.puts "HTTP/1.1 201 Created\r\n\r\n"
+    end
   end
 end
 
