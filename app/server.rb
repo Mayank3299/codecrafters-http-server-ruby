@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'socket'
+require 'zlib'
 # require 'byebug'
 
 # You can use print statements as follows for debugging, they'll be visible when running tests.
@@ -32,7 +33,8 @@ def handle_request(socket)
       body = path[6..]
       encoding = get_encoding(request)
       if encoding
-        socket.puts "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Encoding: #{encoding}\r\nContent-Length: #{body.length}\r\n\r\n#{body}"
+        compressed_body = Zlib.gzip(body)
+        socket.puts "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Encoding: #{encoding}\r\nContent-Length: #{compressed_body.length}\r\n\r\n#{compressed_body}"
       else
         socket.puts "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: #{body.length}\r\n\r\n#{body}"
       end
