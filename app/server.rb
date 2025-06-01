@@ -10,6 +10,11 @@ print('Logs from your program will appear here!')
 #
 server = TCPServer.new('localhost', 4221)
 
+def get_encoding(request)
+  encoding = request.find { |header| header.start_with?('Accept-Encoding:') }&.split(' ')&.last
+  encoding if ['gzip'].include? encoding
+end
+
 def handle_request(socket)
   request = []
   while (line = socket.gets)
@@ -25,7 +30,12 @@ def handle_request(socket)
   if request_method == 'GET'
     if path.start_with?('/echo')
       body = path[6..]
-      socket.puts "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: #{body.length}\r\n\r\n#{body}"
+      encoding = get_encoding(request)
+      if encoding
+        socket.puts "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Encoding: #{encoding}\r\nContent-Length: #{body.length}\r\n\r\n#{body}"
+      else
+        socket.puts "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: #{body.length}\r\n\r\n#{body}"
+      end
     elsif path.start_with?('/user-agent')
       ua = request.find { |ele| ele.start_with?('User-Agent') }.split(': ').last
       socket.puts "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: #{ua.length}\r\n\r\n#{ua}"
