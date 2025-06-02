@@ -90,14 +90,12 @@ end
 # Accept and handle multiple connections with keep-alive logic
 while (client_socket = server.accept)
   Thread.new(client_socket) do |socket|
-    begin
-      while handle_request(socket)
-        # keep processing next request on the same connection
-      end
-    rescue => e
-      puts "Error: #{e.class} - #{e.message}"
-    ensure
-      socket.close
+    while handle_request(socket)
+      # continue processing requests
     end
+  rescue StandardError => e
+    puts "Error: #{e.class} - #{e.message}"
+  ensure
+    socket.close
   end
 end
