@@ -19,11 +19,14 @@ end
 def handle_request(socket)
   request = []
   while (line = socket.gets)
-    break if line == "\r\n"
+    line = line.chomp
+    break if line.empty?
 
-    request << line.chomp
+    request << line
   end
   # debugger
+  return if request.empty?
+
   request.join.split("\r\n")
   request_line = request.first.split(' ')
   request_method = request_line[0]
@@ -34,26 +37,26 @@ def handle_request(socket)
       encoding = get_encoding(request)
       if encoding
         compressed_body = Zlib.gzip(body)
-        socket.puts "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Encoding: #{encoding}\r\nContent-Length: #{compressed_body.length}\r\n\r\n#{compressed_body}"
+        socket.write "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Encoding: #{encoding}\r\nContent-Length: #{compressed_body.length}\r\n\r\n#{compressed_body}"
       else
-        socket.puts "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: #{body.length}\r\n\r\n#{body}"
+        socket.write "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: #{body.length}\r\n\r\n#{body}"
       end
     elsif path.start_with?('/user-agent')
       ua = request.find { |ele| ele.start_with?('User-Agent') }.split(': ').last
-      socket.puts "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: #{ua.length}\r\n\r\n#{ua}"
+      socket.write "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: #{ua.length}\r\n\r\n#{ua}"
     elsif path.start_with?('/files')
       begin
         filename = path.split('/').last
         directory = ARGV[1]
         file = File.open(File.join(directory.to_s, filename), 'r')
-        socket.puts "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: #{file.size}\r\n\r\n#{file.read}"
+        socket.write "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: #{file.size}\r\n\r\n#{file.read}"
       rescue Errno::ENOENT
-        socket.puts "HTTP/1.1 404 Not Found\r\n\r\n"
+        socket.write "HTTP/1.1 404 Not Found\r\n\r\n"
       end
     elsif path == '/'
-      socket.puts "HTTP/1.1 200 OK\r\n\r\n"
+      socket.write "HTTP/1.1 200 OK\r\n\r\n"
     else
-      socket.puts "HTTP/1.1 404 Not Found\r\n\r\n"
+      socket.write "HTTP/1.1 404 Not Found\r\n\r\n"
     end
   elsif request_method == 'POST'
     if path.start_with?('/files')
@@ -63,7 +66,7 @@ def handle_request(socket)
       directory = ARGV[1]
       file_path = File.join(directory.to_s, filename)
       File.write(file_path, body)
-      socket.puts "HTTP/1.1 201 Created\r\n\r\n"
+      socket.write "HTTP/1.1 201 Created\r\n\r\n"
     end
   end
 end
