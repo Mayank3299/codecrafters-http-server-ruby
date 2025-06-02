@@ -2,18 +2,18 @@
 
 require 'socket'
 require 'zlib'
-# require 'byebug'
 
-# You can use print statements as follows for debugging, they'll be visible when running tests.
-print('Logs from your program will appear here!')
-
-# Uncomment this to pass the first stage
-#
 server = TCPServer.new('localhost', 4221)
 
 def get_encoding(request)
-  encodings = request.find { |header| header.start_with?('Accept-Encoding:') }&.split(': ')&.last
+  encodings = request.find { |header| header.start_with?('Accept-Encoding:') }&.split(': ', 2)&.last
   'gzip' if encodings&.split(', ')&.include?('gzip')
+end
+
+def connection_type(request)
+  header = request.find { |h| h.downcase.start_with?('connection:') }
+  value = header&.split(':', 2)&.last&.strip&.downcase
+  value == 'close' ? 'close' : 'keep-alive'
 end
 
 def handle_request(socket)
@@ -24,57 +24,80 @@ def handle_request(socket)
 
     request << line
   end
-  # debugger
-  return if request.empty?
 
-  request.join.split("\r\n")
+  return false if request.empty?
+
   request_line = request.first.split(' ')
   request_method = request_line[0]
   path = request_line[1]
+  conn_type = connection_type(request)
+
+  response_headers = []
+  response_headers << "Connection: #{conn_type}"
+
   if request_method == 'GET'
     if path.start_with?('/echo')
-      body = path[6..]
+      body = path[6..] || ''
       encoding = get_encoding(request)
       if encoding
         compressed_body = Zlib.gzip(body)
-        socket.write "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Encoding: #{encoding}\r\nContent-Length: #{compressed_body.length}\r\n\r\n#{compressed_body}"
+        response_headers << 'Content-Type: text/plain'
+        response_headers << "Content-Encoding: #{encoding}"
+        response_headers << "Content-Length: #{compressed_body.bytesize}"
+        socket.write "HTTP/1.1 200 OK\r\n#{response_headers.join("\r\n")}\r\n\r\n#{compressed_body}"
       else
-        socket.write "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: #{body.length}\r\n\r\n#{body}"
+        response_headers << 'Content-Type: text/plain'
+        response_headers << "Content-Length: #{body.bytesize}"
+        socket.write "HTTP/1.1 200 OK\r\n#{response_headers.join("\r\n")}\r\n\r\n#{body}"
       end
     elsif path.start_with?('/user-agent')
-      ua = request.find { |ele| ele.start_with?('User-Agent') }.split(': ').last
-      socket.write "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: #{ua.length}\r\n\r\n#{ua}"
+      ua = request.find { |ele| ele.start_with?('User-Agent:') }&.split(': ', 2)&.last || ''
+      response_headers << 'Content-Type: text/plain'
+      response_headers << "Content-Length: #{ua.bytesize}"
+      socket.write "HTTP/1.1 200 OK\r\n#{response_headers.join("\r\n")}\r\n\r\n#{ua}"
     elsif path.start_with?('/files')
       begin
         filename = path.split('/').last
         directory = ARGV[1]
-        file = File.open(File.join(directory.to_s, filename), 'r')
-        socket.write "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: #{file.size}\r\n\r\n#{file.read}"
+        file_path = File.join(directory.to_s, filename)
+        content = File.read(file_path)
+        response_headers << 'Content-Type: application/octet-stream'
+        response_headers << "Content-Length: #{content.bytesize}"
+        socket.write "HTTP/1.1 200 OK\r\n#{response_headers.join("\r\n")}\r\n\r\n#{content}"
       rescue Errno::ENOENT
-        socket.write "HTTP/1.1 404 Not Found\r\n\r\n"
+        socket.write "HTTP/1.1 404 Not Found\r\n#{response_headers.join("\r\n")}\r\n\r\n"
       end
     elsif path == '/'
-      socket.write "HTTP/1.1 200 OK\r\n\r\n"
+      socket.write "HTTP/1.1 200 OK\r\n#{response_headers.join("\r\n")}\r\n\r\n"
     else
-      socket.write "HTTP/1.1 404 Not Found\r\n\r\n"
+      socket.write "HTTP/1.1 404 Not Found\r\n#{response_headers.join("\r\n")}\r\n\r\n"
     end
-  elsif request_method == 'POST'
-    if path.start_with?('/files')
-      filename = path.split('/').last
-      content_length = request.find { |header| header.start_with?('Content-Length:') }.split(' ').last.to_i
-      body = socket.gets(content_length)
-      directory = ARGV[1]
-      file_path = File.join(directory.to_s, filename)
-      File.write(file_path, body)
-      socket.write "HTTP/1.1 201 Created\r\n\r\n"
-    end
+  elsif request_method == 'POST' && path.start_with?('/files')
+    filename = path.split('/').last
+    content_length = request.find { |h| h.start_with?('Content-Length:') }&.split(': ', 2)&.last.to_i
+    body = socket.read(content_length)
+    directory = ARGV[1]
+    file_path = File.join(directory.to_s, filename)
+    File.write(file_path, body)
+    socket.write "HTTP/1.1 201 Created\r\n#{response_headers.join("\r\n")}\r\n\r\n"
+  else
+    socket.write "HTTP/1.1 400 Bad Request\r\n#{response_headers.join("\r\n")}\r\n\r\n"
   end
+
+  conn_type != 'close' # keep connection alive only if not "close"
 end
 
+# Accept and handle multiple connections with keep-alive logic
 while (client_socket = server.accept)
   Thread.new(client_socket) do |socket|
-    loop do
-      handle_request(socket)
+    begin
+      while handle_request(socket)
+        # keep processing next request on the same connection
+      end
+    rescue => e
+      puts "Error: #{e.class} - #{e.message}"
+    ensure
+      socket.close
     end
   end
 end
